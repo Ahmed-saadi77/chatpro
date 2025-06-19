@@ -22,7 +22,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactFrontend", policy =>
     {
-        policy.WithOrigins("http://localhost", "http://localhost:5173")
+        policy.WithOrigins("http://localhost", "http://34.89.228.75")
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials(); // Needed for SignalR and cookies/auth
