@@ -4,6 +4,8 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Npgsql; // add this for NpgsqlConnection
+using System.Threading;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -56,6 +58,9 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
+// Wait for PostgreSQL to be ready
+WaitForDatabase(app.Configuration.GetConnectionString("DefaultConnection")!);
+
 // Apply EF Core migrations at startup
 using (var scope = app.Services.CreateScope())
 {
@@ -85,3 +90,26 @@ app.MapControllers();
 app.MapHub<ChatHub>("/chatHub");
 
 app.Run();
+
+void WaitForDatabase(string connectionString, int maxRetries = 10, int delaySeconds = 5)
+{
+    int retries = 0;
+    while (retries < maxRetries)
+    {
+        try
+        {
+            using var conn = new NpgsqlConnection(connectionString);
+            conn.Open();
+            Console.WriteLine("Connected to the database successfully.");
+            return;
+        }
+        catch (Exception ex)
+        {
+            retries++;
+            Console.WriteLine($"Waiting for database (attempt {retries}/{maxRetries}): {ex.Message}");
+            Thread.Sleep(delaySeconds * 1000);
+        }
+    }
+
+    throw new Exception("Could not connect to the database after multiple attempts.");
+}
