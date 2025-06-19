@@ -106,25 +106,29 @@ export const useAuthStore = create((set, get) => ({
     .withUrl(`${BASE_URL}/chatHub?userId=${authUser.id}`, {
       accessTokenFactory: () => localStorage.getItem("token") || "",
     })
+    .configureLogging(
+      import.meta.env.MODE === "development"
+        ? signalR.LogLevel.Information
+        : signalR.LogLevel.None
+    )
     .withAutomaticReconnect()
     .build();
-    console.log("Connecting to SignalR at:", `${BASE_URL}/chatHub?userId=${authUser.id}`);
 
+  newConnection
+    .start()
+    .then(() => {
+      set({ connection: newConnection });
 
-    newConnection.start()
-      .then(() => {
-        console.log("SignalR Connected");
-        set({ connection: newConnection });
+      // Subscribe to online users update
+      newConnection.on("GetOnlineUsers", (users) => {
+        set({ onlineUsers: users });
+      });
 
-        // Subscribe to online users update
-        newConnection.on("GetOnlineUsers", (users) => {
-          set({ onlineUsers: users });
-        });
+      // Add other event handlers if needed here
+    })
+    .catch((err) => console.error("SignalR Connection Error: ", err));
+},
 
-        // Add other event handlers if needed here
-      })
-      .catch((err) => console.error("SignalR Connection Error: ", err));
-  },
 
   disconnectSignalR: () => {
     const { connection } = get();

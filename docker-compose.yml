@@ -1,12 +1,17 @@
-version: '3.9'
+
 
 services:
-  frontend:
-    build: ./thefront
+  postgres:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: cr7bbc11
+      POSTGRES_DB: Chatpro
+    volumes:
+      - pgdata:/var/lib/postgresql/data
     ports:
-      - "80:80"
-    depends_on:
-      - backend
+      - "5432:5432"
 
   backend:
     build: ./backend
@@ -14,3 +19,16 @@ services:
       - "5000:5000"
     environment:
       - ASPNETCORE_URLS=http://+:5000
+      - ConnectionStrings__DefaultConnection=Host=postgres;Database=Chatpro;Username=postgres;Password=cr7bbc11
+    depends_on:
+      - postgres
+
+  frontend:
+    build: ./thefront
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:

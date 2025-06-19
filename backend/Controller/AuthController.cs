@@ -4,6 +4,7 @@ using chatpro.DTOs;
 using chatpro.Entity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace chatpro.Controller
@@ -14,11 +15,13 @@ namespace chatpro.Controller
     {
         private readonly AppDbContext _context;
         private readonly JwtService _jwt;
+        private readonly IHubContext<ChatHub> _hub;
 
-        public AuthController(AppDbContext context, JwtService jwt)
+        public AuthController(AppDbContext context, JwtService jwt, IHubContext<ChatHub> hub)
         {
             _context = context;
             _jwt = jwt;
+            _hub = hub;
         }
 
         [HttpPost("signup")]
@@ -50,7 +53,7 @@ namespace chatpro.Controller
                 Email = user.Email,
                 FullName = user.FullName,
                 ProfilePictureUrl = user.ProfilePictureUrl,
-                 CreatedAt = user.CreatedAt
+                CreatedAt = user.CreatedAt
             });
         }
 
@@ -82,16 +85,13 @@ namespace chatpro.Controller
                 return BadRequest("No file uploaded.");
 
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-            if (userIdClaim == null)
+            if (userIdClaim == null || !Guid.TryParse(userIdClaim.Value, out var userId))
                 return Unauthorized("Invalid token.");
 
-            var userId = Guid.Parse(userIdClaim.Value);
             var user = await _context.Users.FindAsync(userId);
-
             if (user == null)
                 return Unauthorized("User not found.");
 
-            // Save file to wwwroot/uploads
             var uploadsPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
             if (!Directory.Exists(uploadsPath))
                 Directory.CreateDirectory(uploadsPath);
@@ -99,17 +99,44 @@ namespace chatpro.Controller
             var fileName = $"{Guid.NewGuid()}{Path.GetExtension(file.FileName)}";
             var filePath = Path.Combine(uploadsPath, fileName);
 
-            using (var stream = new FileStream(filePath, FileMode.Create))
+            try
             {
+                using var stream = new FileStream(filePath, FileMode.Create);
                 await file.CopyToAsync(stream);
             }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"File upload failed: {ex.Message}");
+            }
 
-            // Update user's profile picture URL
             user.ProfilePictureUrl = $"/uploads/{fileName}";
             user.UpdatedAt = DateTime.UtcNow;
-            await _context.SaveChangesAsync();
 
-            return Ok(new { message = "Profile picture updated successfully", url = user.ProfilePictureUrl });
+            try
+            {
+                await _context.SaveChangesAsync();
+
+                // ✅ Broadcast profile picture update via SignalR
+                await _hub.Clients.All.SendAsync("UserProfileUpdated", new
+                {
+                    userId = user.Id,
+                    profilePictureUrl = user.ProfilePictureUrl
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Failed to update DB: {ex.Message}");
+            }
+
+            return Ok(new AuthResponse
+            {
+                Id = user.Id,
+                Email = user.Email,
+                FullName = user.FullName,
+                ProfilePictureUrl = user.ProfilePictureUrl,
+                CreatedAt = user.CreatedAt,
+                Token = null!
+            });
         }
 
         [HttpGet("check")]
@@ -117,12 +144,10 @@ namespace chatpro.Controller
         public async Task<IActionResult> Check()
         {
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-            if (userIdClaim == null)
+            if (userIdClaim == null || !Guid.TryParse(userIdClaim.Value, out var userId))
                 return Unauthorized(new { message = "Invalid token." });
 
-            var userId = Guid.Parse(userIdClaim.Value);
             var user = await _context.Users.FindAsync(userId);
-
             if (user == null)
                 return Unauthorized(new { message = "User not found." });
 
@@ -133,7 +158,7 @@ namespace chatpro.Controller
                 FullName = user.FullName,
                 ProfilePictureUrl = user.ProfilePictureUrl,
                 CreatedAt = user.CreatedAt,
-                Token = null! // Optional
+                Token = null!
             });
         }
 
@@ -141,9 +166,8 @@ namespace chatpro.Controller
         [Authorize]
         public IActionResult Logout()
         {
-            // In JWT, logout usually means the client deletes the token.
-            // You could implement a blacklist if needed.
-            return Ok(new { message = "Logged out successfully (client-side token deletion)." });
+            // JWT logout = delete token on client-side
+            return Ok(new { message = "Logged out successfully." });
         }
 
         [HttpPost("refresh")]
@@ -151,12 +175,10 @@ namespace chatpro.Controller
         public async Task<IActionResult> Refresh()
         {
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-            if (userIdClaim == null)
+            if (userIdClaim == null || !Guid.TryParse(userIdClaim.Value, out var userId))
                 return Unauthorized("Invalid token.");
 
-            var userId = Guid.Parse(userIdClaim.Value);
             var user = await _context.Users.FindAsync(userId);
-
             if (user == null)
                 return Unauthorized("User not found.");
 
@@ -172,5 +194,4 @@ namespace chatpro.Controller
             });
         }
     }
-
 }

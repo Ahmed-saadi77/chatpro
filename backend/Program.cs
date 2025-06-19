@@ -21,9 +21,9 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowReactFrontend", policy =>
     {
         policy.WithOrigins("http://localhost", "http://localhost:5173")
-                  .AllowAnyHeader()
-                  .AllowAnyMethod()
-                  .AllowCredentials(); // Needed for SignalR and cookies/auth
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials(); // Needed for SignalR and cookies/auth
     });
 });
 
@@ -34,7 +34,7 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer(options =>
 {
-    options.RequireHttpsMetadata = false; // Set to true in production
+    options.RequireHttpsMetadata = false; // Set true in production
     options.SaveToken = true;
     options.TokenValidationParameters = new TokenValidationParameters
     {
@@ -56,6 +56,13 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
+// Apply EF Core migrations at startup
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    db.Database.Migrate();
+}
+
 // --- Middleware ---
 if (app.Environment.IsDevelopment())
 {
@@ -63,14 +70,13 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// Comment out HTTPS redirection to avoid redirect issues during dev
 // app.UseHttpsRedirection();
 
 app.UseStaticFiles();
 
 app.UseRouting();
 
-app.UseCors("AllowReactFrontend"); // <-- Apply CORS policy here
+app.UseCors("AllowReactFrontend");
 
 app.UseAuthentication();
 app.UseAuthorization();
